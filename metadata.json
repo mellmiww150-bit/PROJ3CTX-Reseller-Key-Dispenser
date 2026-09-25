@@ -1,0 +1,6 @@
+{
+  "name": "PROJ3CTX Reseller & Key Dispenser",
+  "description": "แผงเจเนอเรทคีย์ PROJ3CTX พร้อมระบบเติมเงิน TrueMoney Voucher และบอทเช็คสลิปธนาคารอัตโนมัติ 24 ชม.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
