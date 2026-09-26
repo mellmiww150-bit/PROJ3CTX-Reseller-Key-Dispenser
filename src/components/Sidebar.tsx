@@ -16,7 +16,8 @@ import {
   Sliders,
   Users,
   ShieldAlert,
-  Crown
+  Crown,
+  Boxes
 } from 'lucide-react';
 import { UserAccount } from '../types';
 import { formatThb } from '../utils/helpers';
@@ -101,9 +102,18 @@ export const Sidebar: React.FC<SidebarProps> = ({
       badgeColor: 'text-slate-300 bg-slate-800/80 border border-slate-700/60',
     },
     {
+      id: 'products_management',
+      label: 'จัดการสต็อก & สินค้า',
+      icon: Boxes,
+      badge: 'เติมสต็อกได้',
+      badgeColor: 'text-amber-300 bg-amber-950/80 border border-amber-600/50',
+    },
+    {
       id: 'topup',
       label: 'Top-up Credit',
       icon: Wallet,
+      badge: 'ซอง TrueMoney',
+      badgeColor: 'text-amber-400 bg-amber-950/60 border border-amber-800/40',
     },
     {
       id: 'keys',

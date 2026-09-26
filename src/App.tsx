@@ -10,10 +10,12 @@ import { ApiBotView } from './components/ApiBotView';
 import { SettingsView } from './components/SettingsView';
 import { AdminBackofficeView } from './components/AdminBackofficeView';
 import { UsersManagementView } from './components/UsersManagementView';
+import { ProductsManagementView } from './components/ProductsManagementView';
 import { LoginView } from './components/LoginView';
 import { PinVerifyModal } from './components/PinVerifyModal';
 import { DispenseModal } from './components/DispenseModal';
 import { OrderDetailsModal } from './components/OrderDetailsModal';
+import { sendDiscordNotification } from './utils/discordNotifier';
 import { 
   INITIAL_USERS,
   INITIAL_PRODUCTS, 
@@ -204,6 +206,22 @@ export default function App() {
     setIsPinVerified(true);
     playSuccessSound();
     showToast(`สมัครสมาชิกสำเร็จ! ยินดีต้อนรับ ${username}`);
+
+    // Trigger Discord Notification for New Registration
+    sendDiscordNotification({
+      event: 'NEW_USER',
+      data: {
+        username: newUser.username,
+        role: newUser.role,
+        sellerKey: newUser.sellerKey,
+      },
+      stats: {
+        totalUsersCount: users.length + 1,
+        totalKeysCount: keys.length,
+        totalRevenueThb: transactions.filter(t => t.status === 'สำเร็จ').reduce((acc, t) => acc + t.amountThb, 0),
+        recentTransactions: transactions,
+      },
+    }, paymentConfig).catch(() => {});
   };
 
   const handleLogout = () => {
@@ -219,6 +237,18 @@ export default function App() {
   };
 
   // User Management Handlers
+  const handleDeleteUser = (userId: string) => {
+    if (userId === currentUser.id) {
+      showToast('ไม่สามารถลบบัญชีผู้ใช้ที่กำลังเข้าสู่ระบบอยู่ได้');
+      playErrorSound();
+      return;
+    }
+    const target = users.find((u) => u.id === userId);
+    setUsers((prev) => prev.filter((u) => u.id !== userId));
+    playSuccessSound();
+    showToast(`ลบผู้ใช้งาน ${target?.username || userId} ออกจากระบบเรียบร้อย`);
+  };
+
   const handleAdjustUserBalance = (userId: string, newBalance: number, note: string) => {
     setUsers((prev) =>
       prev.map((u) => {
@@ -292,6 +322,23 @@ export default function App() {
     };
 
     setUsers((prev) => [...prev, fullUser]);
+    showToast(`สร้างบัญชีผู้ใช้ ${fullUser.username} สำเร็จ`);
+    playSuccessSound();
+
+    sendDiscordNotification({
+      event: 'NEW_USER',
+      data: {
+        username: fullUser.username,
+        role: fullUser.role,
+        sellerKey: fullUser.sellerKey,
+      },
+      stats: {
+        totalUsersCount: users.length + 1,
+        totalKeysCount: keys.length,
+        totalRevenueThb: transactions.filter(t => t.status === 'สำเร็จ').reduce((acc, t) => acc + t.amountThb, 0),
+        recentTransactions: transactions,
+      },
+    }, paymentConfig).catch(() => {});
   };
 
   // Dispense & Topup Operations
@@ -360,6 +407,24 @@ export default function App() {
     setKeys((prev) => [...newKeys, ...prev]);
 
     showToast(`เบิกสำเร็จ ${quantity} คีย์ (${product.name})`);
+
+    // Trigger Discord notification for key dispensed
+    sendDiscordNotification({
+      event: 'KEY_DISPENSED',
+      data: {
+        productName: product.name,
+        quantity,
+        totalPriceThb: totalCost,
+        username: currentUser.username,
+        keys: generatedKeys,
+      },
+      stats: {
+        totalUsersCount: users.length,
+        totalKeysCount: keys.length + quantity,
+        totalRevenueThb: transactions.filter(t => t.status === 'สำเร็จ').reduce((acc, t) => acc + t.amountThb, 0),
+        recentTransactions: transactions,
+      },
+    }, paymentConfig).catch(() => {});
   };
 
   const handleAddCredit = (
@@ -487,10 +552,16 @@ export default function App() {
           subtitle: 'Manage account credentials, partner key, 6-Digit PIN security and system preferences',
           primaryLabel: 'Generate Key',
         };
+      case 'products_management':
+        return {
+          title: 'ระบบจัดการสต็อก & สินค้า (Stock & Products)',
+          subtitle: 'เติมสต็อกคีย์, เพิ่มสินค้าใหม่, ใส่รูปภาพ และแก้ไขรายละเอียดสินค้าเชื่อมต่อกับหน้าร้านค้า 100%',
+          primaryLabel: 'Dispense Key',
+        };
       case 'users_management':
         return {
           title: 'ระบบจัดการผู้ใช้งาน & ยศ (User Management)',
-          subtitle: 'ปรับยอดยูสเซอร์, แต่งตั้งยศ Super Admin / Admin / Reseller, แบนหรือปลดแบนผู้ใช้',
+          subtitle: 'ปรับยอดยูสเซอร์, แต่งตั้งยศ Super Admin / Admin / Reseller, แบนหรือปลดแบนผู้ใช้, ลบผู้ใช้',
           primaryLabel: 'Generate Key',
         };
       case 'backoffice':
@@ -564,6 +635,7 @@ export default function App() {
               profile={profile}
               products={products}
               recentOrders={orders}
+              transactions={transactions}
               onOpenDispense={handleOpenDispense}
               onNavigateToApi={() => setCurrentTab('api-bot')}
               onNavigateToTopup={() => setCurrentTab('topup')}
@@ -588,6 +660,7 @@ export default function App() {
               bankAccounts={bankAccounts}
               paymentConfig={paymentConfig}
               onNavigateToBackoffice={() => setCurrentTab('backoffice')}
+              onUpdatePaymentConfig={(newCfg) => setPaymentConfig(newCfg)}
             />
           )}
 
@@ -631,6 +704,16 @@ export default function App() {
             />
           )}
 
+          {currentTab === 'products_management' && (
+            <ProductsManagementView
+              products={products}
+              paymentConfig={paymentConfig}
+              onUpdateProducts={setProducts}
+              onShowToast={showToast}
+              onNavigateToShop={() => setCurrentTab('dispenser')}
+            />
+          )}
+
           {currentTab === 'users_management' && (
             <UsersManagementView
               currentUser={currentUser}
@@ -638,6 +721,7 @@ export default function App() {
               onUpdateUserRole={handleUpdateUserRole}
               onAdjustUserBalance={handleAdjustUserBalance}
               onToggleUserStatus={handleToggleUserStatus}
+              onDeleteUser={handleDeleteUser}
               onCreateUser={handleCreateUser}
               onShowToast={showToast}
             />

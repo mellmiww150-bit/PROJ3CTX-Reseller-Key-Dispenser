@@ -32,6 +32,8 @@ export interface ParsedSlipQr {
 
 /**
  * Scans QR code from an image File or DataURL using jsQR
+ * Features multi-pass scanning: full image, bottom-region crop (where bank mini-QRs reside),
+ * and contrast-enhanced binarization for maximum recognition rate.
  */
 export async function scanQrFromImage(imageSource: File | string): Promise<string | null> {
   return new Promise((resolve) => {
@@ -39,44 +41,109 @@ export async function scanQrFromImage(imageSource: File | string): Promise<strin
     img.crossOrigin = 'anonymous';
 
     img.onload = () => {
-      const canvas = document.createElement('canvas');
-      const ctx = canvas.getContext('2d', { willReadFrequently: true });
-      if (!ctx) {
+      try {
+        const naturalW = img.naturalWidth || img.width;
+        const naturalH = img.naturalHeight || img.height;
+
+        if (naturalW === 0 || naturalH === 0) {
+          resolve(null);
+          return;
+        }
+
+        const helperCanvas = document.createElement('canvas');
+        const helperCtx = helperCanvas.getContext('2d', { willReadFrequently: true });
+        if (!helperCtx) {
+          resolve(null);
+          return;
+        }
+
+        // Helper function to scan a canvas with jsQR
+        const tryScanCanvas = (canvas: HTMLCanvasElement): string | null => {
+          const ctx = canvas.getContext('2d', { willReadFrequently: true });
+          if (!ctx) return null;
+          const imgData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+
+          // 1. Regular attempt
+          let code = jsQR(imgData.data, canvas.width, canvas.height, {
+            inversionAttempts: 'dontInvert',
+          });
+          if (code && code.data) return code.data;
+
+          // 2. Invert attempt
+          code = jsQR(imgData.data, canvas.width, canvas.height, {
+            inversionAttempts: 'attemptBoth',
+          });
+          if (code && code.data) return code.data;
+
+          return null;
+        };
+
+        // Pass 1: Standard Resized Canvas
+        let scale = 1;
+        const maxDim = 1600;
+        if (naturalW > maxDim || naturalH > maxDim) {
+          scale = Math.min(maxDim / naturalW, maxDim / naturalH);
+        }
+        const w = Math.round(naturalW * scale);
+        const h = Math.round(naturalH * scale);
+
+        helperCanvas.width = w;
+        helperCanvas.height = h;
+        helperCtx.drawImage(img, 0, 0, w, h);
+
+        const resultPass1 = tryScanCanvas(helperCanvas);
+        if (resultPass1) {
+          resolve(resultPass1);
+          return;
+        }
+
+        // Pass 2: Thai bank slips almost always have mini-QR in the bottom 60%
+        // Focus on the bottom section where slip QR is typically located (KBank, SCB, KTB, BBL, TTB)
+        const cropY = Math.round(naturalH * 0.35);
+        const cropH = naturalH - cropY;
+        const cropCanvas = document.createElement('canvas');
+        cropCanvas.width = naturalW;
+        cropCanvas.height = cropH;
+        const cropCtx = cropCanvas.getContext('2d', { willReadFrequently: true });
+        if (cropCtx) {
+          cropCtx.drawImage(img, 0, cropY, naturalW, cropH, 0, 0, naturalW, cropH);
+          const resultCrop = tryScanCanvas(cropCanvas);
+          if (resultCrop) {
+            resolve(resultCrop);
+            return;
+          }
+        }
+
+        // Pass 3: Contrast boosted pass (helps with dark mode slips or faint QR)
+        const contrastCanvas = document.createElement('canvas');
+        contrastCanvas.width = w;
+        contrastCanvas.height = h;
+        const contrastCtx = contrastCanvas.getContext('2d', { willReadFrequently: true });
+        if (contrastCtx) {
+          contrastCtx.drawImage(img, 0, 0, w, h);
+          const cData = contrastCtx.getImageData(0, 0, w, h);
+          const d = cData.data;
+          // Grayscale + High-contrast threshold
+          for (let i = 0; i < d.length; i += 4) {
+            const gray = (d[i] * 0.299 + d[i + 1] * 0.587 + d[i + 2] * 0.114);
+            const val = gray > 140 ? 255 : 0;
+            d[i] = val;
+            d[i + 1] = val;
+            d[i + 2] = val;
+          }
+          contrastCtx.putImageData(cData, 0, 0);
+          const resultContrast = tryScanCanvas(contrastCanvas);
+          if (resultContrast) {
+            resolve(resultContrast);
+            return;
+          }
+        }
+
         resolve(null);
-        return;
+      } catch (err) {
+        console.warn('Error in scanQrFromImage:', err);
+        resolve(null);
       }
-
-      // Resize canvas to reasonable size if very huge to speed up QR recognition
-      let width = img.naturalWidth || img.width;
-      let height = img.naturalHeight || img.height;
-
-      // If dimensions are massive (> 1800), scale down proportionally
-      const maxDim = 1800;
-      if (width > maxDim || height > maxDim) {
-        const ratio = Math.min(maxDim / width, maxDim / height);
-        width = Math.round(width * ratio);
-        height = Math.round(height * ratio);
-      }
-
-      canvas.width = width;
-      canvas.height = height;
-      ctx.drawImage(img, 0, 0, width, height);
-
-      const imageData = ctx.getImageData(0, 0, width, height);
-      
-      // 1. Try standard scan
-      let code = jsQR(imageData.data, width, height, {
-        inversionAttempts: 'dontInvert',
-      });
-
-      // 2. Try invert if not found
-      if (!code) {
-        code = jsQR(imageData.data, width, height, {
-          inversionAttempts: 'attemptBoth',
-        });
-      }
-
-      resolve(code ? code.data : null);
     };
 
     img.onerror = () => {
@@ -98,6 +165,7 @@ export async function scanQrFromImage(imageSource: File | string): Promise<strin
 /**
  * Parses Bank of Thailand Thai QR Payment Slip mini-QR code
  * Typical standard format: 00460006000001010301402...
+ * Strictly validates Bank of Thailand TLV specifications.
  */
 export function parseThaiBankSlipQr(qrString: string): ParsedSlipQr {
   const result: ParsedSlipQr = {
@@ -111,61 +179,48 @@ export function parseThaiBankSlipQr(qrString: string): ParsedSlipQr {
 
   const clean = qrString.trim();
 
-  // BOT Standard Slip QR often contains "000001" and bank sub-tags
+  // BOT Standard Slip QR MUST contain "000001" and valid bank sub-tags (Tag 00 = 000001)
   // Format TLV pattern:
   // Tag 00: 000001
-  // Tag 01: Bank code (e.g. 004, 014, 006)
+  // Tag 01: Bank code (e.g. 0103004 for KBank, 0103014 for SCB, 0103006 for KTB)
   // Tag 02: Transaction Reference
-  if (clean.includes('000001') || clean.startsWith('0046') || clean.length >= 25) {
-    result.isStandardSlipQr = true;
+  const hasBotIndicator = clean.includes('000001') || clean.startsWith('0046');
+  if (!hasBotIndicator || clean.length < 25) {
+    // NOT a BOT bank slip QR code!
+    return result;
+  }
 
-    // Extract sending bank code (004, 014, 006, 002, 011, 025, 030, etc.)
-    const bankMatch = clean.match(/0103(0[0-9]{2})/);
-    if (bankMatch && bankMatch[1]) {
-      const code = bankMatch[1];
-      result.bankCode = code;
-      result.bankInfo = THAI_BANKS[code] || {
-        code,
-        nameTh: `ธนาคารรหัส ${code}`,
-        nameEn: `Bank ${code}`,
-        shortName: `BANK-${code}`,
-        color: '#3b82f6',
-      };
-    }
+  // Extract sending bank code (004, 014, 006, 002, 011, 025, 030, etc.)
+  const bankMatch = clean.match(/0103(0[0-9]{2})/);
+  if (bankMatch && bankMatch[1]) {
+    const code = bankMatch[1];
+    result.bankCode = code;
+    result.bankInfo = THAI_BANKS[code] || {
+      code,
+      nameTh: `ธนาคารรหัส ${code}`,
+      nameEn: `Bank ${code}`,
+      shortName: `BANK-${code}`,
+      color: '#3b82f6',
+    };
+  } else {
+    // If Tag 01 not found or invalid bank code format -> Reject as invalid slip QR
+    return result;
+  }
 
-    // Extract transRef (Tag 02)
-    const refMatch = clean.match(/02([0-9]{2})([A-Za-z0-9_-]+)/);
-    if (refMatch && refMatch[2]) {
-      const len = parseInt(refMatch[1], 10);
-      result.transRef = refMatch[2].substring(0, isNaN(len) ? 20 : len);
-    } else {
-      // Fallback transRef extraction from alphanumeric sequences
-      const anyRef = clean.match(/[0-9A-Za-z]{15,35}/);
-      if (anyRef) {
-        result.transRef = anyRef[0];
-      }
+  // Extract transRef (Tag 02)
+  const refMatch = clean.match(/02([0-9]{2})([A-Za-z0-9_-]+)/);
+  if (refMatch && refMatch[2]) {
+    const len = parseInt(refMatch[1], 10);
+    const extracted = refMatch[2].substring(0, isNaN(len) ? 25 : len);
+    if (extracted.length >= 8) {
+      result.transRef = extracted;
+      result.isStandardSlipQr = true;
     }
   }
 
-  // If no bankCode detected yet, check known bank patterns
-  if (!result.bankCode) {
-    for (const [code, info] of Object.entries(THAI_BANKS)) {
-      if (clean.includes(code) || clean.toLowerCase().includes(info.shortName.toLowerCase())) {
-        result.bankCode = code;
-        result.bankInfo = info;
-        break;
-      }
-    }
-  }
-
-  // If still no transRef, generate an authoritative hash from the QR content
-  if (!result.transRef && clean.length > 8) {
-    let hash = 0;
-    for (let i = 0; i < clean.length; i++) {
-      hash = (hash << 5) - hash + clean.charCodeAt(i);
-      hash |= 0;
-    }
-    result.transRef = 'QR-' + Math.abs(hash).toString(16).toUpperCase().padStart(8, '0');
+  // If no valid transRef extracted from Tag 02, this is not a valid bank slip!
+  if (!result.transRef) {
+    result.isStandardSlipQr = false;
   }
 
   return result;

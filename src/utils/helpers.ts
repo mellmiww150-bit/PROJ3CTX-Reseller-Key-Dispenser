@@ -91,3 +91,76 @@ export const getCurrentTimestamp = (): string => {
   const pad = (n: number) => n.toString().padStart(2, '0');
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
 };
+
+/**
+ * Voice notification in Thai using Web Speech API: "เงินเข้าแล้วค่ะ ยอดเงิน ... บาท"
+ */
+export const speakThaiPaymentNotification = (amount: number, _methodTitle: string = 'เงินเข้าแล้ว'): void => {
+  try {
+    if (typeof window !== 'undefined' && 'speechSynthesis' in window) {
+      window.speechSynthesis.cancel();
+      const roundedAmount = Math.round(amount);
+      const text = `เงินเข้าแล้วค่ะ ได้รับเงินจำนวน ${roundedAmount} บาท เข้าสู่ระบบเรียบร้อยแล้วค่ะ`;
+      const utterance = new SpeechSynthesisUtterance(text);
+      utterance.lang = 'th-TH';
+      utterance.rate = 1.05;
+      utterance.pitch = 1.1;
+
+      // Select Thai voice if available in browser
+      const voices = window.speechSynthesis.getVoices();
+      const thaiVoice = voices.find((v) => v.lang.toLowerCase().startsWith('th'));
+      if (thaiVoice) {
+        utterance.voice = thaiVoice;
+      }
+      window.speechSynthesis.speak(utterance);
+    }
+  } catch (e) {
+    console.warn('Speech synthesis notification skipped:', e);
+  }
+};
+
+/**
+ * Reads an image file from OS folder or mobile gallery and converts to optimized DataURL
+ * Automatically scales down large photos (e.g. from phone camera) to ensure fast rendering & storage
+ */
+export const processImageFileToDataUrl = (file: File, maxDimension = 900, quality = 0.85): Promise<string> => {
+  return new Promise((resolve, reject) => {
+    if (!file || !file.type.startsWith('image/')) {
+      reject(new Error('กรุณาเลือกไฟล์รูปภาพเท่านั้น'));
+      return;
+    }
+
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      const src = e.target?.result as string;
+      const img = new Image();
+      img.onload = () => {
+        let width = img.naturalWidth || img.width;
+        let height = img.naturalHeight || img.height;
+
+        if (width > maxDimension || height > maxDimension) {
+          const ratio = Math.min(maxDimension / width, maxDimension / height);
+          width = Math.round(width * ratio);
+          height = Math.round(height * ratio);
+        }
+
+        const canvas = document.createElement('canvas');
+        canvas.width = width;
+        canvas.height = height;
+        const ctx = canvas.getContext('2d');
+        if (!ctx) {
+          resolve(src);
+          return;
+        }
+
+        ctx.drawImage(img, 0, 0, width, height);
+        const dataUrl = canvas.toDataURL('image/jpeg', quality);
+        resolve(dataUrl);
+      };
+      img.onerror = () => resolve(src);
+      img.src = src;
+    };
+    reader.onerror = (err) => reject(err);
+    reader.readAsDataURL(file);
+  });
+};

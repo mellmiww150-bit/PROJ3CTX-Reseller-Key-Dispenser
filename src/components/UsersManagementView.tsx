@@ -27,6 +27,7 @@ interface UsersManagementViewProps {
   onUpdateUserRole: (userId: string, newRole: UserRole) => void;
   onAdjustUserBalance: (userId: string, newBalance: number, note: string) => void;
   onToggleUserStatus: (userId: string) => void;
+  onDeleteUser: (userId: string) => void;
   onCreateUser: (newUser: Partial<UserAccount>) => void;
   onShowToast: (msg: string) => void;
 }
@@ -37,6 +38,7 @@ export const UsersManagementView: React.FC<UsersManagementViewProps> = ({
   onUpdateUserRole,
   onAdjustUserBalance,
   onToggleUserStatus,
+  onDeleteUser,
   onCreateUser,
   onShowToast,
 }) => {
@@ -54,6 +56,9 @@ export const UsersManagementView: React.FC<UsersManagementViewProps> = ({
   // Role Edit Modal
   const [roleModalUser, setRoleModalUser] = useState<UserAccount | null>(null);
   const [selectedRole, setSelectedRole] = useState<UserRole>('RESELLER');
+
+  // Delete User Confirmation Modal
+  const [deleteConfirmUser, setDeleteConfirmUser] = useState<UserAccount | null>(null);
 
   // Create User Modal
   const [showCreateModal, setShowCreateModal] = useState(false);
@@ -344,6 +349,17 @@ export const UsersManagementView: React.FC<UsersManagementViewProps> = ({
                               <Ban className="w-3.5 h-3.5" />
                             </button>
                           )}
+
+                          {/* Delete User Button */}
+                          {!isCurrent && u.role !== 'SUPER_ADMIN' && (
+                            <button
+                              onClick={() => setDeleteConfirmUser(u)}
+                              className="p-1.5 rounded-lg bg-rose-950/40 hover:bg-rose-900/70 border border-rose-800/40 text-rose-400 hover:text-white transition-colors cursor-pointer"
+                              title={`ลบผู้ใช้งาน ${u.username}`}
+                            >
+                              <Trash2 className="w-3.5 h-3.5" />
+                            </button>
+                          )}
                         </div>
                       </td>
                     </tr>
@@ -628,6 +644,65 @@ export const UsersManagementView: React.FC<UsersManagementViewProps> = ({
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* Modal 4: Delete User Confirmation */}
+      {deleteConfirmUser && (
+        <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+          <div className="bg-[#12152b] border border-rose-500/40 rounded-2xl max-w-md w-full p-6 space-y-4 shadow-2xl">
+            <div className="flex items-center justify-between pb-3 border-b border-[#241e38]">
+              <div className="flex items-center gap-2">
+                <div className="w-8 h-8 rounded-xl bg-rose-950/80 border border-rose-600/50 flex items-center justify-center text-rose-400">
+                  <Trash2 className="w-4 h-4" />
+                </div>
+                <h3 className="text-base font-bold text-white">ยืนยันการลบผู้ใช้งาน</h3>
+              </div>
+              <button
+                onClick={() => setDeleteConfirmUser(null)}
+                className="p-1 rounded text-slate-400 hover:text-white"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <div className="p-4 rounded-xl bg-rose-950/20 border border-rose-900/40 space-y-2 text-xs">
+              <p className="text-slate-200">
+                คุณแน่ใจหรือไม่ว่าต้องการลบผู้ใช้งาน <strong className="text-rose-400 font-mono text-sm">{deleteConfirmUser.username}</strong> ออกจากระบบอย่างถาวร?
+              </p>
+              <div className="grid grid-cols-2 gap-2 pt-2 border-t border-rose-900/30 text-slate-400">
+                <div>ระดับยศ: <span className="text-white font-semibold">{deleteConfirmUser.role}</span></div>
+                <div>เครดิตคงเหลือ: <span className="text-emerald-400 font-mono font-semibold">{formatThb(deleteConfirmUser.balanceThb)}</span></div>
+                <div>คีย์ที่เคยเบิก: <span className="text-cyan-300 font-mono font-semibold">{deleteConfirmUser.keysCreatedCount} คีย์</span></div>
+                <div>Seller Key: <span className="text-indigo-300 font-mono text-[10px]">{deleteConfirmUser.sellerKey}</span></div>
+              </div>
+            </div>
+
+            <p className="text-[11px] text-rose-400/90 font-medium">
+              ⚠️ คำเตือน: การลบนี้จะไม่สามารถย้อนกลับได้ บัญชีผู้ใช้และโทเค็นจะถูกเพิกถอนทันที
+            </p>
+
+            <div className="flex justify-end gap-2 pt-3 border-t border-[#1f254e]">
+              <button
+                type="button"
+                onClick={() => setDeleteConfirmUser(null)}
+                className="px-4 py-2 rounded-xl text-xs text-slate-400 hover:text-white cursor-pointer"
+              >
+                ยกเลิก
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  onDeleteUser(deleteConfirmUser.id);
+                  setDeleteConfirmUser(null);
+                }}
+                className="px-5 py-2 rounded-xl text-xs font-bold text-white bg-rose-600 hover:bg-rose-500 shadow-lg shadow-rose-600/30 flex items-center gap-1.5 cursor-pointer"
+              >
+                <Trash2 className="w-3.5 h-3.5" />
+                <span>ยืนยันลบผู้ใช้งาน</span>
+              </button>
+            </div>
           </div>
         </div>
       )}

@@ -33,6 +33,8 @@ export interface ProductTier {
   stock: number;
   description: string;
   badge?: string;
+  imageUrl?: string;
+  features?: string[];
 }
 
 export interface LicenseKey {
@@ -95,14 +97,27 @@ export interface ResellerProfile {
 export interface SlipVerificationResult {
   isValid: boolean;
   bankName: string;
+  bankLogo?: string;
   transferDateTime: string;
   senderName: string;
   receiverName: string;
+  receiverAccount?: string;
   amount: number;
   transRef: string;
   qrDetected: boolean;
   confidence: number;
   message: string;
+  isFakeSlip?: boolean;
+  reason?: string;
+  provider?: string;
+  securityAudit?: {
+    aiAudited: boolean;
+    tamperDetected: boolean;
+    antiReplayPassed: boolean;
+    receiverMatched: boolean;
+    dateFreshness: string;
+    modelUsed?: string;
+  };
 }
 
 export interface BankAccountConfig {
@@ -124,9 +139,20 @@ export interface SystemPaymentConfig {
   slipBotEnabled: boolean;
   minDepositThb: number;
   antiDuplicateSlip: boolean;
-  slipProvider?: 'AUTO_QR' | 'SLIPOK' | 'OPENSLIPVERIFY';
+  slipProvider?: 'AUTO_QR' | 'SLIPOK' | 'EASYSLIP' | 'CUSTOM_API' | 'AI_FORENSIC' | 'HYBRID';
+  slipVerificationMode?: 'AI_STRICT' | 'API_STRICT' | 'ADVANCED_HEURISTIC' | 'AI_SMART_BALANCED';
   slipOkApiKey?: string;
   slipOkBranchId?: string;
+  easySlipApiKey?: string;
+  customSlipApiUrl?: string;
+  customSlipApiKey?: string;
+  customSlipApiHeader?: string;
+  matchReceiverName?: boolean;
+  maxSlipAgeDays?: number;
   truemoneyMode?: 'SMART_AUTO' | 'LIVE_DIRECT' | 'RELAY_PROXY';
   truemoneyProxyUrl?: string;
+  discordWebhookUrl?: string;
+  discordNotifyNewUser?: boolean;
+  discordNotifyKeyDispense?: boolean;
+  discordNotifyTopup?: boolean;
 }
